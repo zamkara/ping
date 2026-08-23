@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	"ping/config"
-	"ping/internal/handlers"
-	"ping/internal/models"
-	"ping/internal/useragent"
+	"ping/pkg/handlers"
+	"ping/pkg/models"
+	"ping/pkg/useragent"
 )
 
 func TestUserAgentParser(t *testing.T) {

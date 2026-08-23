@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"ping/internal/models"
+	"ping/pkg/models"
 )
 
 // Extract parses the TLS connection state from an http.Request

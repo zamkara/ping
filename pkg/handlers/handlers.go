@@ -19,10 +19,10 @@ import (
 	"time"
 
 	"ping/config"
-	"ping/internal/geo"
-	"ping/internal/models"
-	"ping/internal/tlsinfo"
-	"ping/internal/useragent"
+	"ping/pkg/geo"
+	"ping/pkg/models"
+	"ping/pkg/tlsinfo"
+	"ping/pkg/useragent"
 )
 
 type Handler struct {

@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"ping/config"
-	"ping/internal/handlers"
+	"ping/pkg/handlers"
 )
 
 var h *handlers.Handler

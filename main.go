@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"ping/config"
-	"ping/internal/handlers"
+	"ping/pkg/handlers"
 )
 
 func main() {

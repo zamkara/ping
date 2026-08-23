@@ -3,7 +3,7 @@ package useragent
 import (
 	"strings"
 
-	"ping/internal/models"
+	"ping/pkg/models"
 )
 
 // Parse inspects raw user-agent string and returns deep UserAgentData

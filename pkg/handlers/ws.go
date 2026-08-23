@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"ping/internal/geo"
-	"ping/internal/models"
+	"ping/pkg/geo"
+	"ping/pkg/models"
 )
 
 var upgrader = websocket.Upgrader{

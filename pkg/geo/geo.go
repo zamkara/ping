@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"ping/internal/models"
+	"ping/pkg/models"
 )
 
 type GeoResolver struct {
