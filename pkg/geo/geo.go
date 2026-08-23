@@ -126,17 +126,16 @@ func ExtractVercelContext(r *http.Request) *models.VercelContext {
 	}
 
 	return &models.VercelContext{
-		ID:            vercelID,
-		Region:        region,
-		Country:       r.Header.Get("X-Vercel-Ip-Country"),
-		RegionCode:    r.Header.Get("X-Vercel-Ip-Country-Region"),
-		City:          r.Header.Get("X-Vercel-Ip-City"),
-		Latitude:      r.Header.Get("X-Vercel-Ip-Latitude"),
-		Longitude:     r.Header.Get("X-Vercel-Ip-Longitude"),
-		Timezone:      r.Header.Get("X-Vercel-Ip-Timezone"),
-		ASNumber:      asNum,
-		DeploymentURL: r.Header.Get("X-Vercel-Deployment-Url"),
-		IsVercel:      true,
+		ID:         vercelID,
+		Region:     region,
+		Country:    r.Header.Get("X-Vercel-Ip-Country"),
+		RegionCode: r.Header.Get("X-Vercel-Ip-Country-Region"),
+		City:       r.Header.Get("X-Vercel-Ip-City"),
+		Latitude:   r.Header.Get("X-Vercel-Ip-Latitude"),
+		Longitude:  r.Header.Get("X-Vercel-Ip-Longitude"),
+		Timezone:   r.Header.Get("X-Vercel-Ip-Timezone"),
+		ASNumber:   asNum,
+		IsVercel:   true,
 	}
 }
 

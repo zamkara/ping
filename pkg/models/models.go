@@ -1,23 +1,19 @@
 package models
 
-import "time"
-
-// PingResponse is the master detailed JSON response
+// PingResponse is the master detailed JSON response focused 100% on client data
 type PingResponse struct {
-	Headers       map[string]string      `json:"headers"` // Matches Hiiruki top-level headers (Sanitized)
-	Cloudflare    *CloudflareContext     `json:"cf"`      // Matches Hiiruki top-level cf
-	Vercel        *VercelContext         `json:"vercel,omitempty"` // Vercel Edge/Serverless context
-	Client        ClientData             `json:"client"`
-	Network       NetworkData            `json:"network"`
-	Geo           GeoData                `json:"geo"`
-	Security      SecurityData           `json:"security"`
-	HeaderDetails HeaderDetailsData    `json:"header_details"`
-	ClientHints   *ClientHintsData       `json:"client_hints,omitempty"`
-	TLS           *TLSData               `json:"tls,omitempty"`
-	HTTP          HTTPData               `json:"http"`
-	UserAgent     UserAgentData          `json:"user_agent"`
-	Storage       StorageData            `json:"storage"`
-	Server        ServerData             `json:"server"`
+	Headers       map[string]string   `json:"headers"` // Matches Hiiruki top-level headers (Sanitized)
+	Cloudflare    *CloudflareContext  `json:"cf"`      // Matches Hiiruki top-level cf
+	Client        ClientData          `json:"client"`
+	Network       NetworkData         `json:"network"`
+	Geo           GeoData             `json:"geo"`
+	Security      SecurityData        `json:"security"`
+	HeaderDetails HeaderDetailsData `json:"header_details"`
+	ClientHints   *ClientHintsData    `json:"client_hints,omitempty"`
+	TLS           *TLSData            `json:"tls,omitempty"`
+	HTTP          HTTPData            `json:"http"`
+	UserAgent     UserAgentData       `json:"user_agent"`
+	Storage       StorageData         `json:"storage"`
 }
 
 // StorageData status of client log saved into Vercel storage / memory
@@ -25,22 +21,20 @@ type StorageData struct {
 	Saved          bool   `json:"saved"`
 	LogID          string `json:"log_id"`
 	TotalLogsSaved int    `json:"total_logs_saved"`
-	StorageType    string `json:"storage_type"` // "Vercel KV + Memory Ring Buffer"
 }
 
 // VercelContext metadata injected when running on Vercel Serverless / Edge Network
 type VercelContext struct {
-	ID            string `json:"id,omitempty"`
-	Region        string `json:"region,omitempty"`
-	Country       string `json:"country,omitempty"`
-	RegionCode    string `json:"region_code,omitempty"`
-	City          string `json:"city,omitempty"`
-	Latitude      string `json:"latitude,omitempty"`
-	Longitude     string `json:"longitude,omitempty"`
-	Timezone      string `json:"timezone,omitempty"`
-	ASNumber      int    `json:"as_number,omitempty"`
-	DeploymentURL string `json:"deployment_url,omitempty"`
-	IsVercel      bool   `json:"is_vercel"`
+	ID         string `json:"id,omitempty"`
+	Region     string `json:"region,omitempty"`
+	Country    string `json:"country,omitempty"`
+	RegionCode string `json:"region_code,omitempty"`
+	City       string `json:"city,omitempty"`
+	Latitude   string `json:"latitude,omitempty"`
+	Longitude  string `json:"longitude,omitempty"`
+	Timezone   string `json:"timezone,omitempty"`
+	ASNumber   int    `json:"as_number,omitempty"`
+	IsVercel   bool   `json:"is_vercel"`
 }
 
 // CloudflareContext exact 100% complete Cloudflare Workers cf object
@@ -212,20 +206,6 @@ type UserAgentData struct {
 	IsSearchEngine bool   `json:"is_search_engine"`
 	IsCLI          bool   `json:"is_cli"`
 	IsHeadless     bool   `json:"is_headless"`
-}
-
-// ServerData server execution diagnostics
-type ServerData struct {
-	RequestID        string    `json:"request_id"`
-	Hostname         string    `json:"hostname"`
-	Time             time.Time `json:"time"`
-	TimestampUnixMs  int64     `json:"timestamp_unix_ms"`
-	TimestampUnixNs  int64     `json:"timestamp_unix_ns"`
-	ProcessingTimeUs int64     `json:"processing_time_us"`
-	Uptime           string    `json:"uptime"`
-	GoVersion        string    `json:"go_version"`
-	Goroutines       int       `json:"goroutines"`
-	MemoryAllocMB    float64   `json:"memory_alloc_mb"`
 }
 
 // LatencyPingMessage for WebSocket live latency testing

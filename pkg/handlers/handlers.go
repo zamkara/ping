@@ -11,8 +11,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -42,11 +40,13 @@ func NewHandler(cfg *config.Config) *Handler {
 	}
 }
 
+// isSensitiveHeader identifies internal/deployment headers to conceal from public output
 func isSensitiveHeader(name string) bool {
 	lower := strings.ToLower(name)
 	return lower == "x-vercel-oidc-token" ||
 		lower == "x-vercel-proxy-signature" ||
 		lower == "x-vercel-proxy-signature-ts" ||
+		lower == "x-vercel-deployment-url" ||
 		lower == "authorization" ||
 		lower == "proxy-authorization"
 }
@@ -55,7 +55,6 @@ func isSensitiveHeader(name string) bool {
 func sanitizeHeaderValue(key, val string) string {
 	lowerKey := strings.ToLower(key)
 	if lowerKey == "forwarded" {
-		// Strip sig=... parameter from Forwarded header if present
 		if idx := strings.Index(val, ";sig="); idx != -1 {
 			end := strings.Index(val[idx+5:], ";")
 			if end != -1 {
@@ -68,18 +67,14 @@ func sanitizeHeaderValue(key, val string) string {
 	return val
 }
 
-// BuildPingResponse generates the complete detailed PingResponse
+// BuildPingResponse generates client-focused data response without exposing deployment/internal server metadata
 func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []byte) {
 	startTime := time.Now()
 
 	clientIP, clientPort := geo.GetClientIP(r)
 	clientData := geo.AnalyzeIP(clientIP, clientPort)
 
-	reqIDInput := fmt.Sprintf("%s-%s-%d", clientIP, r.UserAgent(), startTime.UnixNano())
-	reqIDHash := sha256.Sum256([]byte(reqIDInput))
-	requestID := hex.EncodeToString(reqIDHash[:12])
-
-	// Collect & Sanitize Headers (filtering sensitive internal tokens)
+	// Collect & Sanitize Headers (filtering sensitive internal/deployment tokens)
 	headersAll := make(map[string]string)
 	headersRaw := make(map[string][]string)
 	headerOrder := make([]string, 0, len(r.Header))
@@ -135,8 +130,6 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 			}
 		}
 	}
-
-	vercelContext := geo.ExtractVercelContext(r)
 
 	uaRaw := r.Header.Get("User-Agent")
 	uaParsed := useragent.Parse(uaRaw)
@@ -204,30 +197,9 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 		BodySummary:     bodySum,
 	}
 
-	hostname, _ := os.Hostname()
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-
-	now := time.Now().UTC()
-	elapsedUs := time.Since(startTime).Microseconds()
-
-	serverData := models.ServerData{
-		RequestID:        requestID,
-		Hostname:         hostname,
-		Time:             now,
-		TimestampUnixMs:  now.UnixNano() / int64(time.Millisecond),
-		TimestampUnixNs:  now.UnixNano(),
-		ProcessingTimeUs: elapsedUs,
-		Uptime:           time.Since(h.startTime).Truncate(time.Second).String(),
-		GoVersion:        runtime.Version(),
-		Goroutines:       runtime.NumGoroutine(),
-		MemoryAllocMB:    float64(m.Alloc) / 1024 / 1024,
-	}
-
 	resp := &models.PingResponse{
 		Headers:       headersAll,
 		Cloudflare:    &cfContext,
-		Vercel:        vercelContext,
 		Client:        clientData,
 		Network:       netData,
 		Geo:           geoData,
@@ -237,7 +209,6 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 		TLS:           tlsData,
 		HTTP:          httpData,
 		UserAgent:     uaParsed,
-		Server:        serverData,
 	}
 
 	// Persist client ping log to storage
@@ -248,8 +219,9 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 		Saved:          saved,
 		LogID:          logID,
 		TotalLogsSaved: len(logsList),
-		StorageType:    "Vercel KV / Memory Ring-Buffer Log",
 	}
+
+	_ = startTime
 
 	return resp, bodyBytes
 }
@@ -492,11 +464,9 @@ func (h *Handler) HandleDNS(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, map[string]interface{}{
-		"status":    "ok",
-		"pong":      true,
-		"time":      time.Now().UTC(),
-		"uptime":    time.Since(h.startTime).Truncate(time.Second).String(),
-		"goversion": runtime.Version(),
+		"status": "ok",
+		"pong":   true,
+		"time":   time.Now().UTC(),
 	})
 }
 
@@ -521,7 +491,7 @@ func (h *Handler) writeANSITerminal(w http.ResponseWriter, resp *models.PingResp
 	)
 
 	var buf bytes.Buffer
-	buf.WriteString(fmt.Sprintf("%s%s🚀 PING DATA ENGINE — ULTRA DETAILED DATA INSPECTOR%s\n", bold, cyan, reset))
+	buf.WriteString(fmt.Sprintf("%s%s🚀 PING DATA ENGINE — CLIENT DATA INSPECTOR%s\n", bold, cyan, reset))
 	buf.WriteString(fmt.Sprintf("%s---------------------------------------------------%s\n", blue, reset))
 
 	buf.WriteString(fmt.Sprintf("%s🌐 CLIENT IP    :%s %s%s%s (%s, PTR: %s)\n", bold, reset, green, resp.Client.IP, reset, resp.Client.IPVersion, resp.Client.ReverseDNS))
@@ -547,7 +517,6 @@ func (h *Handler) writeANSITerminal(w http.ResponseWriter, resp *models.PingResp
 		buf.WriteString(fmt.Sprintf("  %s%-26s%s: %s\n", yellow, k, reset, resp.Headers[k]))
 	}
 
-	buf.WriteString(fmt.Sprintf("\n%s⏱  PROCESSING   :%s %d μs (ReqID: %s)\n", bold, reset, resp.Server.ProcessingTimeUs, resp.Server.RequestID))
 	buf.WriteString(fmt.Sprintf("%s---------------------------------------------------%s\n", blue, reset))
 
 	w.Write(buf.Bytes())

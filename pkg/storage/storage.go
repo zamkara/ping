@@ -13,27 +13,26 @@ import (
 )
 
 type ClientLogEntry struct {
-	ID         string                 `json:"id"`
-	Timestamp  time.Time              `json:"timestamp"`
-	UnixMs     int64                  `json:"unix_ms"`
-	ClientIP   string                 `json:"client_ip"`
-	Port       string                 `json:"port"`
-	Geo        models.GeoData         `json:"geo"`
-	Network    models.NetworkData     `json:"network"`
-	UserAgent  models.UserAgentData   `json:"user_agent"`
-	Security   models.SecurityData    `json:"security"`
-	Headers    map[string]string      `json:"headers"`
-	JA4Digest  string                 `json:"ja4_digest,omitempty"`
-	VercelID   string                 `json:"vercel_id,omitempty"`
-	QueryParams map[string]string     `json:"query_params,omitempty"`
+	ID          string               `json:"id"`
+	Timestamp   time.Time            `json:"timestamp"`
+	UnixMs      int64                `json:"unix_ms"`
+	ClientIP    string               `json:"client_ip"`
+	Port        string               `json:"port"`
+	Geo         models.GeoData       `json:"geo"`
+	Network     models.NetworkData   `json:"network"`
+	UserAgent   models.UserAgentData `json:"user_agent"`
+	Security    models.SecurityData  `json:"security"`
+	Headers     map[string]string    `json:"headers"`
+	JA4Digest   string               `json:"ja4_digest,omitempty"`
+	QueryParams map[string]string   `json:"query_params,omitempty"`
 }
 
 type StorageEngine struct {
-	mu         sync.RWMutex
-	logs       []ClientLogEntry
-	maxSize    int
-	kvURL      string
-	kvToken    string
+	mu      sync.RWMutex
+	logs    []ClientLogEntry
+	maxSize int
+	kvURL   string
+	kvToken string
 }
 
 func NewStorageEngine() *StorageEngine {
@@ -47,22 +46,22 @@ func NewStorageEngine() *StorageEngine {
 
 // SaveRecord stores client ping data in memory ring-buffer and asynchronously to Vercel KV if configured
 func (s *StorageEngine) SaveRecord(resp *models.PingResponse) (string, bool) {
-	logID := fmt.Sprintf("log_%d_%s", resp.Server.TimestampUnixMs, resp.Server.RequestID)
+	now := time.Now().UTC()
+	sigSnippet := "req"
+	if len(resp.HeaderDetails.Signature) >= 12 {
+		sigSnippet = resp.HeaderDetails.Signature[:12]
+	}
+	logID := fmt.Sprintf("log_%d_%s", now.UnixNano()/int64(time.Millisecond), sigSnippet)
 
 	ja4 := ""
 	if resp.Headers != nil {
 		ja4 = resp.Headers["x-vercel-ja4-digest"]
 	}
 
-	vercelID := ""
-	if resp.Vercel != nil {
-		vercelID = resp.Vercel.ID
-	}
-
 	entry := ClientLogEntry{
 		ID:          logID,
-		Timestamp:   resp.Server.Time,
-		UnixMs:      resp.Server.TimestampUnixMs,
+		Timestamp:   now,
+		UnixMs:      now.UnixNano() / int64(time.Millisecond),
 		ClientIP:    resp.Client.IP,
 		Port:        resp.Client.Port,
 		Geo:         resp.Geo,
@@ -71,7 +70,6 @@ func (s *StorageEngine) SaveRecord(resp *models.PingResponse) (string, bool) {
 		Security:    resp.Security,
 		Headers:     resp.Headers,
 		JA4Digest:   ja4,
-		VercelID:    vercelID,
 		QueryParams: resp.HTTP.QueryParams,
 	}
 
@@ -82,7 +80,6 @@ func (s *StorageEngine) SaveRecord(resp *models.PingResponse) (string, bool) {
 	s.logs = append(s.logs, entry)
 	s.mu.Unlock()
 
-	// Async push to Vercel KV / Redis if env var present
 	if s.kvURL != "" && s.kvToken != "" {
 		go s.saveToVercelKV(logID, entry)
 	}
@@ -105,7 +102,7 @@ func (s *StorageEngine) GetLogs(limit int) []ClientLogEntry {
 
 	result := make([]ClientLogEntry, limit)
 	for i := 0; i < limit; i++ {
-		result[i] = s.logs[total-1-i] // reverse order (newest first)
+		result[i] = s.logs[total-1-i]
 	}
 	return result
 }
