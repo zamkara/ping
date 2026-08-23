@@ -1,0 +1,16 @@
+# Binaries
+ping
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+*.out
+
+# Dependencies & IDE
+vendor/
+.DS_Store
+.idea/
+.vscode/
