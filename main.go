@@ -32,6 +32,8 @@ func main() {
 	mux.HandleFunc("/network", h.HandleNetwork)
 	mux.HandleFunc("/security", h.HandleSecurity)
 	mux.HandleFunc("/tls", h.HandleTLS)
+	mux.HandleFunc("/logs", h.HandleLogs)
+	mux.HandleFunc("/logs/clear", h.HandleClearLogs)
 	mux.HandleFunc("/echo", h.HandleEcho)
 	mux.HandleFunc("/ws", h.HandleWebSocket)
 	mux.HandleFunc("/dns", h.HandleDNS)

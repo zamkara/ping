@@ -4,7 +4,7 @@ import "time"
 
 // PingResponse is the master detailed JSON response
 type PingResponse struct {
-	Headers       map[string]string      `json:"headers"` // Matches Hiiruki top-level headers
+	Headers       map[string]string      `json:"headers"` // Matches Hiiruki top-level headers (Sanitized)
 	Cloudflare    *CloudflareContext     `json:"cf"`      // Matches Hiiruki top-level cf
 	Vercel        *VercelContext         `json:"vercel,omitempty"` // Vercel Edge/Serverless context
 	Client        ClientData             `json:"client"`
@@ -16,7 +16,16 @@ type PingResponse struct {
 	TLS           *TLSData               `json:"tls,omitempty"`
 	HTTP          HTTPData               `json:"http"`
 	UserAgent     UserAgentData          `json:"user_agent"`
+	Storage       StorageData            `json:"storage"`
 	Server        ServerData             `json:"server"`
+}
+
+// StorageData status of client log saved into Vercel storage / memory
+type StorageData struct {
+	Saved          bool   `json:"saved"`
+	LogID          string `json:"log_id"`
+	TotalLogsSaved int    `json:"total_logs_saved"`
+	StorageType    string `json:"storage_type"` // "Vercel KV + Memory Ring Buffer"
 }
 
 // VercelContext metadata injected when running on Vercel Serverless / Edge Network

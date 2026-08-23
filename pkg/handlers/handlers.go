@@ -21,22 +21,51 @@ import (
 	"ping/config"
 	"ping/pkg/geo"
 	"ping/pkg/models"
+	"ping/pkg/storage"
 	"ping/pkg/tlsinfo"
 	"ping/pkg/useragent"
 )
 
 type Handler struct {
-	cfg         *config.Config
-	geoResolver *geo.GeoResolver
-	startTime   time.Time
+	cfg           *config.Config
+	geoResolver   *geo.GeoResolver
+	storageEngine *storage.StorageEngine
+	startTime     time.Time
 }
 
 func NewHandler(cfg *config.Config) *Handler {
 	return &Handler{
-		cfg:         cfg,
-		geoResolver: geo.NewGeoResolver(),
-		startTime:   time.Now(),
+		cfg:           cfg,
+		geoResolver:   geo.NewGeoResolver(),
+		storageEngine: storage.NewStorageEngine(),
+		startTime:     time.Now(),
 	}
+}
+
+func isSensitiveHeader(name string) bool {
+	lower := strings.ToLower(name)
+	return lower == "x-vercel-oidc-token" ||
+		lower == "x-vercel-proxy-signature" ||
+		lower == "x-vercel-proxy-signature-ts" ||
+		lower == "authorization" ||
+		lower == "proxy-authorization"
+}
+
+// sanitizeHeaderValue scrubs secret tokens/signatures from header values
+func sanitizeHeaderValue(key, val string) string {
+	lowerKey := strings.ToLower(key)
+	if lowerKey == "forwarded" {
+		// Strip sig=... parameter from Forwarded header if present
+		if idx := strings.Index(val, ";sig="); idx != -1 {
+			end := strings.Index(val[idx+5:], ";")
+			if end != -1 {
+				val = val[:idx] + val[idx+5+end:]
+			} else {
+				val = val[:idx]
+			}
+		}
+	}
+	return val
 }
 
 // BuildPingResponse generates the complete detailed PingResponse
@@ -46,20 +75,28 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 	clientIP, clientPort := geo.GetClientIP(r)
 	clientData := geo.AnalyzeIP(clientIP, clientPort)
 
-	// Generate Request ID
 	reqIDInput := fmt.Sprintf("%s-%s-%d", clientIP, r.UserAgent(), startTime.UnixNano())
 	reqIDHash := sha256.Sum256([]byte(reqIDInput))
 	requestID := hex.EncodeToString(reqIDHash[:12])
 
-	// Collect Headers (matching Hiiruki format + raw details)
+	// Collect & Sanitize Headers (filtering sensitive internal tokens)
 	headersAll := make(map[string]string)
 	headersRaw := make(map[string][]string)
 	headerOrder := make([]string, 0, len(r.Header))
 
 	for k, v := range r.Header {
+		if isSensitiveHeader(k) {
+			continue
+		}
+
+		sanitizedVals := make([]string, len(v))
+		for i, val := range v {
+			sanitizedVals[i] = sanitizeHeaderValue(k, val)
+		}
+
 		lowerK := strings.ToLower(k)
-		headersAll[lowerK] = strings.Join(v, ", ")
-		headersRaw[k] = v
+		headersAll[lowerK] = strings.Join(sanitizedVals, ", ")
+		headersRaw[k] = sanitizedVals
 		headerOrder = append(headerOrder, k)
 	}
 
@@ -70,11 +107,10 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 	headerDetails := models.HeaderDetailsData{
 		Raw:       headersRaw,
 		Order:     headerOrder,
-		Count:     len(r.Header),
+		Count:     len(headersAll),
 		Signature: headerSig,
 	}
 
-	// Extract Client Hints if present
 	var clientHints *models.ClientHintsData
 	if r.Header.Get("Sec-CH-UA") != "" || r.Header.Get("Sec-CH-UA-Platform") != "" {
 		clientHints = &models.ClientHintsData{
@@ -90,6 +126,16 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 	}
 
 	geoData, netData, secData, cfContext := h.geoResolver.FetchGeoAndNetwork(r, clientIP)
+
+	// Filter requestHeaderNames in cfContext as well
+	if cfContext.RequestHeaderNames != nil {
+		for k := range cfContext.RequestHeaderNames {
+			if isSensitiveHeader(k) {
+				delete(cfContext.RequestHeaderNames, k)
+			}
+		}
+	}
+
 	vercelContext := geo.ExtractVercelContext(r)
 
 	uaRaw := r.Header.Get("User-Agent")
@@ -112,7 +158,6 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 		cookiesMap[c.Name] = c.Value
 	}
 
-	// Parse Accept-Encoding & Accept-Language
 	encodings := parseAcceptEncoding(r.Header.Get("Accept-Encoding"))
 	languages := parseAcceptLanguage(r.Header.Get("Accept-Language"))
 
@@ -193,6 +238,17 @@ func (h *Handler) BuildPingResponse(r *http.Request) (*models.PingResponse, []by
 		HTTP:          httpData,
 		UserAgent:     uaParsed,
 		Server:        serverData,
+	}
+
+	// Persist client ping log to storage
+	logID, saved := h.storageEngine.SaveRecord(resp)
+	logsList := h.storageEngine.GetLogs(0)
+
+	resp.Storage = models.StorageData{
+		Saved:          saved,
+		LogID:          logID,
+		TotalLogsSaved: len(logsList),
+		StorageType:    "Vercel KV / Memory Ring-Buffer Log",
 	}
 
 	return resp, bodyBytes
@@ -284,6 +340,11 @@ func (h *Handler) HandleHeaderByKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Header name required", http.StatusBadRequest)
 		return
 	}
+	if isSensitiveHeader(key) {
+		http.Error(w, "Access to sensitive header denied", http.StatusForbidden)
+		return
+	}
+
 	val := r.Header.Get(key)
 	if val == "" {
 		for k, v := range r.Header {
@@ -294,7 +355,7 @@ func (h *Handler) HandleHeaderByKey(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	fmt.Fprintln(w, val)
+	fmt.Fprintln(w, sanitizeHeaderValue(key, val))
 }
 
 func (h *Handler) HandleUserAgent(w http.ResponseWriter, r *http.Request) {
@@ -329,6 +390,31 @@ func (h *Handler) HandleTLS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, resp.TLS)
+}
+
+// HandleLogs returns list of saved client ping logs
+func (h *Handler) HandleLogs(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if val, err := strconv.Atoi(l); err == nil {
+			limit = val
+		}
+	}
+	logs := h.storageEngine.GetLogs(limit)
+	h.writeJSON(w, map[string]interface{}{
+		"total_logs": len(logs),
+		"limit":      limit,
+		"logs":       logs,
+	})
+}
+
+// HandleClearLogs clears stored client ping logs
+func (h *Handler) HandleClearLogs(w http.ResponseWriter, r *http.Request) {
+	h.storageEngine.ClearLogs()
+	h.writeJSON(w, map[string]interface{}{
+		"message": "Client ping logs cleared successfully",
+		"status":  "ok",
+	})
 }
 
 func (h *Handler) HandleEcho(w http.ResponseWriter, r *http.Request) {
@@ -442,6 +528,7 @@ func (h *Handler) writeANSITerminal(w http.ResponseWriter, resp *models.PingResp
 	buf.WriteString(fmt.Sprintf("%s📍 LOCATION     :%s %s %s, %s (%s, Lat: %.4f, Lon: %.4f)\n", bold, reset, resp.Geo.FlagEmoji, resp.Geo.City, resp.Geo.CountryName, resp.Geo.RegionName, resp.Geo.Latitude, resp.Geo.Longitude))
 	buf.WriteString(fmt.Sprintf("%s🏢 NETWORK (ASN):%s AS%d %s (ISP: %s)\n", bold, reset, resp.Network.ASN, resp.Network.Organization, resp.Network.ISP))
 	buf.WriteString(fmt.Sprintf("%s🛡️ RISK / CLOUD :%s Datacenter: %t, Provider: %s, Threat: %s\n", bold, reset, resp.Security.IsDatacenter, resp.Security.CloudProvider, resp.Security.ThreatLevel))
+	buf.WriteString(fmt.Sprintf("%s💾 LOG STORAGE  :%s LogID: %s (Total Saved: %d)\n", bold, reset, resp.Storage.LogID, resp.Storage.TotalLogsSaved))
 	buf.WriteString(fmt.Sprintf("%s💻 USER AGENT   :%s %s (%s / %s)\n", bold, reset, resp.UserAgent.Browser, resp.UserAgent.OS, resp.UserAgent.DeviceType))
 	buf.WriteString(fmt.Sprintf("%s🔒 PROTOCOL     :%s %s\n", bold, reset, resp.HTTP.Protocol))
 

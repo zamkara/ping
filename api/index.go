@@ -48,6 +48,10 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		h.HandleSecurity(w, r)
 	case "/tls":
 		h.HandleTLS(w, r)
+	case "/logs":
+		h.HandleLogs(w, r)
+	case "/logs/clear":
+		h.HandleClearLogs(w, r)
 	case "/echo":
 		h.HandleEcho(w, r)
 	case "/dns":
