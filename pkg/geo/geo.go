@@ -60,7 +60,7 @@ func extractPort(remoteAddr string) string {
 	return port
 }
 
-// AnalyzeIP inspects IP flags & performs reverse DNS
+// AnalyzeIP inspects IP flags & performs reverse DNS with 150ms timeout
 func AnalyzeIP(ipStr string, port string) models.ClientData {
 	ip := net.ParseIP(ipStr)
 	data := models.ClientData{
@@ -85,9 +85,21 @@ func AnalyzeIP(ipStr string, port string) models.ClientData {
 	data.IsGlobalUnicast = ip.IsGlobalUnicast() && !data.IsPrivate
 
 	if !data.IsPrivate {
-		names, err := net.LookupAddr(ipStr)
-		if err == nil && len(names) > 0 {
-			data.ReverseDNS = strings.TrimSuffix(names[0], ".")
+		// Strict 150ms timeout on reverse DNS lookup to prevent serverless function hang
+		ch := make(chan string, 1)
+		go func() {
+			names, err := net.LookupAddr(ipStr)
+			if err == nil && len(names) > 0 {
+				ch <- strings.TrimSuffix(names[0], ".")
+			} else {
+				ch <- ""
+			}
+		}()
+		select {
+		case name := <-ch:
+			data.ReverseDNS = name
+		case <-time.After(150 * time.Millisecond):
+			data.ReverseDNS = ""
 		}
 	} else {
 		data.ReverseDNS = "localhost"
@@ -271,6 +283,9 @@ func (gr *GeoResolver) FetchGeoAndNetwork(r *http.Request, clientIP string) (mod
 				cf.Colo = vercelID[:idx]
 			}
 		}
+
+		secData = detectCloudProvider(netData.Organization+" "+netData.ISP, secData)
+		return geo, netData, secData, cf
 	}
 
 	// 3. Local / Private IP handling
@@ -306,7 +321,7 @@ func (gr *GeoResolver) FetchGeoAndNetwork(r *http.Request, clientIP string) (mod
 		return geo, netData, secData, cf
 	}
 
-	// 4. Fallback IP Geo lookup via API with cache
+	// 4. Fallback IP Geo lookup via API with cache (1 second timeout)
 	cacheKey := clientIP
 	if cached, ok := gr.cache.Load(cacheKey); ok {
 		if res, valid := cached.(struct {
@@ -319,7 +334,7 @@ func (gr *GeoResolver) FetchGeoAndNetwork(r *http.Request, clientIP string) (mod
 		}
 	}
 
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 1 * time.Second}
 	resp, err := client.Get(fmt.Sprintf("http://ip-api.com/json/%s?fields=status,country,countryCode,region,regionName,city,zip,lat,lon,timezone,isp,org,as,query,currency", clientIP))
 	if err == nil && resp.StatusCode == 200 {
 		defer resp.Body.Close()

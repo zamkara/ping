@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"ping/config"
@@ -16,6 +18,19 @@ func init() {
 
 // Handler is the Vercel Serverless Function entrypoint
 func Handler(w http.ResponseWriter, r *http.Request) {
+	// Panic Recovery Middleware
+	defer func() {
+		if err := recover(); err != nil {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":   fmt.Sprintf("Internal Server Error: %v", err),
+				"status":  500,
+				"message": "Panic recovered in serverless handler",
+			})
+		}
+	}()
+
 	switch r.URL.Path {
 	case "/json":
 		h.HandleJSON(w, r)
